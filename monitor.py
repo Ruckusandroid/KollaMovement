@@ -34,12 +34,19 @@ GOLD_TRIGGERS = [
 
 
 def send_email(subject: str, body: str) -> None:
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "465") or "465")
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    email_from = os.environ["EMAIL_FROM"]
-    email_to = os.environ["EMAIL_TO"]
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int((os.environ.get("SMTP_PORT", "465") or "465").strip())
+    smtp_user = os.environ["SMTP_USER"].strip()
+    smtp_password = os.environ["SMTP_PASSWORD"].strip()
+    email_from = os.environ["EMAIL_FROM"].strip()
+    email_to = os.environ["EMAIL_TO"].strip()
+
+    if not smtp_host:
+        raise RuntimeError("SMTP_HOST är tom")
+    if not smtp_user:
+        raise RuntimeError("SMTP_USER är tom")
+    if not smtp_password:
+        raise RuntimeError("SMTP_PASSWORD är tom")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -48,9 +55,16 @@ def send_email(subject: str, body: str) -> None:
     msg.set_content(body)
 
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
+
+    server = smtplib.SMTP_SSL(host=smtp_host, port=smtp_port, context=context, timeout=30)
+    try:
         server.login(smtp_user, smtp_password)
         server.send_message(msg)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
 
 
 def load_state() -> dict:
