@@ -19,17 +19,17 @@ SPX_TRIGGERS = [
 ]
 
 BTC_TRIGGERS = [
-    ("L1", -25.0),
-    ("L2", -35.0),
-    ("L3", -45.0),
+    ("L1", -24.0),
+    ("L2", -36.0),
+    ("L3", -50.0),
     ("L4", -60.0),
 ]
 
 GOLD_TRIGGERS = [
-    ("L1", -7.0),
+    ("L1", -8.0),
     ("L2", -12.0),
-    ("L3", -18.0),
-    ("L4", -25.0),
+    ("L3", -16.0),
+    ("L4", -20.0),
 ]
 
 SPX_ACTIONS = {
@@ -54,7 +54,7 @@ GOLD_ACTIONS = {
 }
 
 
-def send_email(subject: str, body: str) -> None:
+def send_email(subject: str, body: str, html: str | None = None) -> None:
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = int((os.environ.get("SMTP_PORT", "465") or "465").strip())
     smtp_user = os.environ["SMTP_USER"].strip()
@@ -73,7 +73,12 @@ def send_email(subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg["From"] = email_from
     msg["To"] = email_to
-    msg.set_content(body)
+
+    if html:
+        msg.set_content(body)
+        msg.add_alternative(html, subtype="html")
+    else:
+        msg.set_content(body)
 
     context = ssl.create_default_context()
 
@@ -303,14 +308,23 @@ def main() -> None:
         state["gold_last_trigger"] = gold_trigger
 
     if messages:
-        subject = "Marknadstrigger"
-        body = "Nya triggers uppfyllda:\n\n" + "\n".join(messages)
-        send_email(subject, body)
+        subject = "Lystring!"
+        text_body = "Nya triggers uppfyllda:\n\n" + "\n".join(messages)
+        html_body = f"""
+        <html>
+          <body>
+            <h1 style="color: red; font-size: 32px; margin-bottom: 16px;">Lystring!</h1>
+            <p><strong>Nya triggers uppfyllda:</strong></p>
+            <pre style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{text_body}</pre>
+          </body>
+        </html>
+        """
+        send_email(subject, text_body, html_body)
         state["last_email_sent_at"] = now
 
     if should_send_weekly_status(state, now_dt):
-        subject = "Veckostatus – Market Monitor"
-        body = (
+        subject = "Veckobrev"
+        text_body = (
             "Systemet lever och kör som vanligt.\n\n"
             "Status just nu:\n\n"
             f"S&P 500\n"
@@ -336,7 +350,15 @@ def main() -> None:
             f"- Aktiv åtgärd: {GOLD_ACTIONS.get(gold_trigger, 'Ingen aktiv åtgärd just nu.') if gold_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
             f"- Nästa trigger: {get_next_simple_trigger(gold_dd, GOLD_TRIGGERS)}\n"
         )
-        send_email(subject, body)
+        html_body = f"""
+        <html>
+          <body>
+            <h1 style="font-size: 32px; margin-bottom: 16px;">Veckobrev</h1>
+            <pre style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{text_body}</pre>
+          </body>
+        </html>
+        """
+        send_email(subject, text_body, html_body)
         state["last_status_email_date"] = now_dt.date().isoformat()
 
     if vix_close < 20 and spx_dd > -5:
