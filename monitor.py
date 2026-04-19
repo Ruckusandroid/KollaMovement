@@ -32,6 +32,12 @@ GOLD_TRIGGERS = [
     ("L4", -20.0),
 ]
 
+print({
+    "smtp_host": os.environ.get("SMTP_HOST", ""),
+    "smtp_port": os.environ.get("SMTP_PORT", ""),
+    "smtp_user_set": bool(os.environ.get("SMTP_USER", "")),
+    "smtp_password_set": bool(os.environ.get("SMTP_PASSWORD", "")),
+})
 
 def send_email(subject: str, body: str) -> None:
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
