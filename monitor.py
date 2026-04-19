@@ -62,7 +62,6 @@ def send_email(subject: str, body: str, html: str | None = None) -> None:
     email_from = os.environ["EMAIL_FROM"].strip()
     email_to_raw = os.environ["EMAIL_TO"]
 
-    # gör lista av adresser
     email_to_list = [addr.strip() for addr in email_to_raw.split(",") if addr.strip()]
 
     if not smtp_host:
@@ -195,7 +194,7 @@ def evaluate_simple_trigger(drawdown_pct: float, triggers: list[tuple[str, float
 
 
 def should_send_weekly_status(state: dict, now_dt: datetime) -> bool:
-    if now_dt.weekday() != 0:  # måndag
+    if now_dt.weekday() != 0:
         return False
     today = now_dt.date().isoformat()
     return state.get("last_status_email_date") != today
@@ -220,6 +219,69 @@ def get_next_spx_trigger(drawdown_pct: float, vix: float) -> str:
                 f"(målbelåning {leverage_target}%)"
             )
     return "Ingen nästa nivå, redan under djupaste triggern"
+
+
+def format_level_html(label: str, text: str, is_active: bool) -> str:
+    if is_active:
+        return f"<li><strong>{label}: {text} ← vi är här nu</strong></li>"
+    return f"<li>{label}: {text}</li>"
+
+
+def build_spx_rules_html(active_trigger: str | None) -> str:
+    rows = [
+        ("L1", "-12% och VIX ≥ 25 → öka total belåning till 2%"),
+        ("L2", "-18% och VIX ≥ 30 → öka total belåning till 5%"),
+        ("L3", "-25% och VIX ≥ 35 → öka total belåning till 8%"),
+        ("L4", "-30% och VIX ≥ 40 → öka total belåning till 12%-16%"),
+    ]
+    items = "\n".join(
+        format_level_html(level, text, active_trigger == level)
+        for level, text in rows
+    )
+    return f"""
+    <h2>Huvudregel</h2>
+    <p><strong>S&amp;P 500</strong></p>
+    <ul>
+      {items}
+    </ul>
+    """
+
+
+def build_opportunities_html(btc_trigger: str | None, gold_trigger: str | None) -> str:
+    btc_rows = [
+        ("L1", "-24% från ATH → överväg första BTC-köp (+2%)"),
+        ("L2", "-36% från ATH → öka BTC-köp till andra nivån (+5%)"),
+        ("L3", "-50% från ATH → aggressiv BTC-köpnivå (+8%)"),
+        ("L4", "-60% från ATH → maximal BTC-köpnivå (+12%-16%)"),
+    ]
+
+    gold_rows = [
+        ("L1", "-8% från ATH → överväg första guldköp (+2%)"),
+        ("L2", "-12% från ATH → öka guldköp till andra nivån (+5%)"),
+        ("L3", "-16% från ATH → tredje guldköpnivån nådd (+8%)"),
+        ("L4", "-20% från ATH → maximal guldköpnivå nådd (+12%-16%)"),
+    ]
+
+    btc_items = "\n".join(
+        format_level_html(level, text, btc_trigger == level)
+        for level, text in btc_rows
+    )
+    gold_items = "\n".join(
+        format_level_html(level, text, gold_trigger == level)
+        for level, text in gold_rows
+    )
+
+    return f"""
+    <h2>Möjligheter</h2>
+    <p><strong>BTC</strong></p>
+    <ul>
+      {btc_items}
+    </ul>
+    <p><strong>Guld</strong></p>
+    <ul>
+      {gold_items}
+    </ul>
+    """
 
 
 def main() -> None:
@@ -319,6 +381,9 @@ def main() -> None:
             <h1 style="color: red; font-size: 32px; margin-bottom: 16px;">Lystring!</h1>
             <p><strong>Nya triggers uppfyllda:</strong></p>
             <pre style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{text_body}</pre>
+            <hr>
+            {build_spx_rules_html(spx_trigger)}
+            {build_opportunities_html(btc_trigger, gold_trigger)}
           </body>
         </html>
         """
@@ -358,6 +423,9 @@ def main() -> None:
           <body>
             <h1 style="font-size: 32px; margin-bottom: 16px;">Veckobrev</h1>
             <pre style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{text_body}</pre>
+            <hr>
+            {build_spx_rules_html(spx_trigger)}
+            {build_opportunities_html(btc_trigger, gold_trigger)}
           </body>
         </html>
         """
