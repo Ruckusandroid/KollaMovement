@@ -32,12 +32,27 @@ GOLD_TRIGGERS = [
     ("L4", -20.0),
 ]
 
-print({
-    "smtp_host": os.environ.get("SMTP_HOST", ""),
-    "smtp_port": os.environ.get("SMTP_PORT", ""),
-    "smtp_user_set": bool(os.environ.get("SMTP_USER", "")),
-    "smtp_password_set": bool(os.environ.get("SMTP_PASSWORD", "")),
-})
+SPX_ACTIONS = {
+    "L1": "Åtgärd: öka total belåning till 2%.",
+    "L2": "Åtgärd: öka total belåning till 5%.",
+    "L3": "Åtgärd: öka total belåning till 8%.",
+    "L4": "Åtgärd: öka total belåning till 12%-16%.",
+}
+
+BTC_ACTIONS = {
+    "L1": "Åtgärd: överväg första BTC-köp.(+2%)",
+    "L2": "Åtgärd: öka BTC-köp till andra nivån.(+5%)",
+    "L3": "Åtgärd: aggressiv BTC-köpnivå.(+8%)",
+    "L4": "Åtgärd: maximal BTC-köpnivå.(+12-16%)",
+}
+
+GOLD_ACTIONS = {
+    "L1": "Åtgärd: överväg första guldköp.(+2%)",
+    "L2": "Åtgärd: öka guldköp till andra nivån. (+5%)",
+    "L3": "Åtgärd: tredje guldköpnivån nådd. (+8%)",
+    "L4": "Åtgärd: maximal guldköpnivå nådd. (+12-16%)",
+}
+
 
 def send_email(subject: str, body: str) -> None:
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
@@ -80,6 +95,7 @@ def load_state() -> dict:
             "btc_last_trigger": None,
             "gold_last_trigger": None,
             "last_email_sent_at": None,
+            "last_status_email_date": None,
         }
     with open(STATE_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -170,9 +186,38 @@ def evaluate_simple_trigger(drawdown_pct: float, triggers: list[tuple[str, float
     return triggered
 
 
+def should_send_weekly_status(state: dict, now_dt: datetime) -> bool:
+    if now_dt.weekday() != 0:  # måndag
+        return False
+    today = now_dt.date().isoformat()
+    return state.get("last_status_email_date") != today
+
+
+def get_next_simple_trigger(drawdown_pct: float, triggers: list[tuple[str, float]]) -> str:
+    for level_name, dd_threshold in triggers:
+        if drawdown_pct > dd_threshold:
+            diff = drawdown_pct - dd_threshold
+            return f"{level_name} om ytterligare {diff:.2f} procentenheter ned"
+    return "Ingen nästa nivå, redan under djupaste triggern"
+
+
+def get_next_spx_trigger(drawdown_pct: float, vix: float) -> str:
+    for level_name, dd_threshold, vix_threshold, leverage_target in SPX_TRIGGERS:
+        if not (drawdown_pct <= dd_threshold and vix >= vix_threshold):
+            dd_needed = max(0.0, drawdown_pct - dd_threshold)
+            vix_needed = max(0.0, vix_threshold - vix)
+            return (
+                f"{level_name} kräver ytterligare {dd_needed:.2f} procentenheter ned "
+                f"och {vix_needed:.2f} VIX-punkter upp "
+                f"(målbelåning {leverage_target}%)"
+            )
+    return "Ingen nästa nivå, redan under djupaste triggern"
+
+
 def main() -> None:
     state = load_state()
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
 
     try:
         spx_close, spx_ath = get_last_and_ath("^GSPC")
@@ -223,6 +268,7 @@ def main() -> None:
     messages = []
 
     if spx_trigger is not None and spx_trigger != state.get("spx_last_trigger"):
+        action_text = SPX_ACTIONS.get(spx_trigger, "Åtgärd: ingen definierad.")
         messages.append(
             f"S&P 500 {spx_trigger}\n"
             f"- Kurs: {spx_close:.2f}\n"
@@ -230,24 +276,29 @@ def main() -> None:
             f"- Drawdown: {spx_dd:.2f}%\n"
             f"- VIX: {vix_close:.2f}\n"
             f"- Föreslagen total belåning: {spx_target}%\n"
+            f"- {action_text}\n"
         )
         state["spx_last_trigger"] = spx_trigger
 
     if btc_trigger is not None and btc_trigger != state.get("btc_last_trigger"):
+        action_text = BTC_ACTIONS.get(btc_trigger, "Åtgärd: ingen definierad.")
         messages.append(
             f"BTC {btc_trigger}\n"
             f"- Kurs: {btc_close:.2f}\n"
             f"- ATH: {btc_ath:.2f}\n"
             f"- Drawdown: {btc_dd:.2f}%\n"
+            f"- {action_text}\n"
         )
         state["btc_last_trigger"] = btc_trigger
 
     if gold_trigger is not None and gold_trigger != state.get("gold_last_trigger"):
+        action_text = GOLD_ACTIONS.get(gold_trigger, "Åtgärd: ingen definierad.")
         messages.append(
             f"Guld {gold_trigger}\n"
             f"- Pris: {gold_close:.2f}\n"
             f"- ATH: {gold_ath:.2f}\n"
             f"- Drawdown: {gold_dd:.2f}%\n"
+            f"- {action_text}\n"
         )
         state["gold_last_trigger"] = gold_trigger
 
@@ -256,6 +307,37 @@ def main() -> None:
         body = "Nya triggers uppfyllda:\n\n" + "\n".join(messages)
         send_email(subject, body)
         state["last_email_sent_at"] = now
+
+    if should_send_weekly_status(state, now_dt):
+        subject = "Veckostatus – Market Monitor"
+        body = (
+            "Systemet lever och kör som vanligt.\n\n"
+            "Status just nu:\n\n"
+            f"S&P 500\n"
+            f"- Kurs: {spx_close:.2f}\n"
+            f"- ATH: {spx_ath:.2f}\n"
+            f"- Från ATH: {spx_dd:.2f}%\n"
+            f"- VIX: {vix_close:.2f}\n"
+            f"- Aktiv trigger: {spx_trigger or 'Ingen'}\n"
+            f"- Aktiv åtgärd: {SPX_ACTIONS.get(spx_trigger, 'Ingen aktiv åtgärd just nu.') if spx_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
+            f"- Nästa trigger: {get_next_spx_trigger(spx_dd, vix_close)}\n\n"
+            f"BTC\n"
+            f"- Kurs: {btc_close:.2f}\n"
+            f"- ATH: {btc_ath:.2f}\n"
+            f"- Från ATH: {btc_dd:.2f}%\n"
+            f"- Aktiv trigger: {btc_trigger or 'Ingen'}\n"
+            f"- Aktiv åtgärd: {BTC_ACTIONS.get(btc_trigger, 'Ingen aktiv åtgärd just nu.') if btc_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
+            f"- Nästa trigger: {get_next_simple_trigger(btc_dd, BTC_TRIGGERS)}\n\n"
+            f"Guld\n"
+            f"- Pris: {gold_close:.2f}\n"
+            f"- ATH: {gold_ath:.2f}\n"
+            f"- Från ATH: {gold_dd:.2f}%\n"
+            f"- Aktiv trigger: {gold_trigger or 'Ingen'}\n"
+            f"- Aktiv åtgärd: {GOLD_ACTIONS.get(gold_trigger, 'Ingen aktiv åtgärd just nu.') if gold_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
+            f"- Nästa trigger: {get_next_simple_trigger(gold_dd, GOLD_TRIGGERS)}\n"
+        )
+        send_email(subject, body)
+        state["last_status_email_date"] = now_dt.date().isoformat()
 
     if vix_close < 20 and spx_dd > -5:
         state["spx_last_trigger"] = None
