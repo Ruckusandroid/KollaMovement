@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from datetime import datetime, timezone
 import smtplib
 import ssl
@@ -10,15 +11,13 @@ import yfinance as yf
 
 STATE_FILE = "state.json"
 
-# S&P 500: drawdown + VIX
 SPX_TRIGGERS = [
     ("L1", -12.0, 25.0, 2),
     ("L2", -18.0, 30.0, 5),
     ("L3", -25.0, 35.0, 8),
-    ("L4", -30.0, 40.0, 12),  # ändra till 16 om du vill
+    ("L4", -30.0, 40.0, 12),
 ]
 
-# BTC: ungefär dubbla nivåer från ATH
 BTC_TRIGGERS = [
     ("L1", -24.0),
     ("L2", -36.0),
@@ -26,7 +25,6 @@ BTC_TRIGGERS = [
     ("L4", -60.0),
 ]
 
-# Guld: lugnare rörelser
 GOLD_TRIGGERS = [
     ("L1", -8.0),
     ("L2", -12.0),
@@ -37,7 +35,7 @@ GOLD_TRIGGERS = [
 
 def send_email(subject: str, body: str) -> None:
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+    smtp_port = int(os.environ.get("SMTP_PORT", "465") or "465")
     smtp_user = os.environ["SMTP_USER"]
     smtp_password = os.environ["SMTP_PASSWORD"]
     email_from = os.environ["EMAIL_FROM"]
@@ -72,22 +70,62 @@ def save_state(state: dict) -> None:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def get_last_and_ath(ticker: str, period: str = "max") -> tuple[float, float]:
-    t = yf.Ticker(ticker)
-    hist = t.history(period=period, auto_adjust=False)
-    if hist.empty:
-        raise RuntimeError(f"Kunde inte hämta data för {ticker}")
-    close = float(hist["Close"].dropna().iloc[-1])
-    ath = float(hist["Close"].dropna().max())
-    return close, ath
+def get_last_and_ath(ticker: str, period: str = "max", retries: int = 3, delay: int = 20) -> tuple[float, float]:
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period=period, auto_adjust=False)
+
+            if hist.empty:
+                raise RuntimeError(f"Ingen data för {ticker}")
+
+            close = float(hist["Close"].dropna().iloc[-1])
+            ath = float(hist["Close"].dropna().max())
+            return close, ath
+
+        except Exception as e:
+            last_error = e
+            msg = str(e).lower()
+            is_rate_limit = "rate limited" in msg or "too many requests" in msg or "429" in msg
+
+            if attempt < retries and is_rate_limit:
+                print(f"{ticker}: rate limited, försök {attempt}/{retries}, väntar {delay}s...")
+                time.sleep(delay)
+                continue
+
+            raise
+
+    raise last_error
 
 
-def get_vix() -> float:
-    t = yf.Ticker("^VIX")
-    hist = t.history(period="5d", auto_adjust=False)
-    if hist.empty:
-        raise RuntimeError("Kunde inte hämta VIX-data")
-    return float(hist["Close"].dropna().iloc[-1])
+def get_vix(retries: int = 3, delay: int = 20) -> float:
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            t = yf.Ticker("^VIX")
+            hist = t.history(period="5d", auto_adjust=False)
+
+            if hist.empty:
+                raise RuntimeError("Ingen VIX-data")
+
+            return float(hist["Close"].dropna().iloc[-1])
+
+        except Exception as e:
+            last_error = e
+            msg = str(e).lower()
+            is_rate_limit = "rate limited" in msg or "too many requests" in msg or "429" in msg
+
+            if attempt < retries and is_rate_limit:
+                print(f"VIX: rate limited, försök {attempt}/{retries}, väntar {delay}s...")
+                time.sleep(delay)
+                continue
+
+            raise
+
+    raise last_error
 
 
 def compute_drawdown_percent(current: float, ath: float) -> float:
@@ -116,19 +154,24 @@ def main() -> None:
     state = load_state()
     now = datetime.now(timezone.utc).isoformat()
 
-    # S&P 500
-    spx_close, spx_ath = get_last_and_ath("^GSPC")
-    vix_close = get_vix()
+    try:
+        spx_close, spx_ath = get_last_and_ath("^GSPC")
+        vix_close = get_vix()
+        btc_close, btc_ath = get_last_and_ath("BTC-USD")
+        gold_close, gold_ath = get_last_and_ath("GC=F")
+    except Exception as e:
+        msg = str(e).lower()
+        if "rate limited" in msg or "too many requests" in msg or "429" in msg:
+            print(f"Yahoo rate limit just nu, hoppar över denna körning: {e}")
+            return
+        raise
+
     spx_dd = compute_drawdown_percent(spx_close, spx_ath)
     spx_trigger, spx_target = evaluate_spx_trigger(spx_dd, vix_close)
 
-    # BTC
-    btc_close, btc_ath = get_last_and_ath("BTC-USD")
     btc_dd = compute_drawdown_percent(btc_close, btc_ath)
     btc_trigger = evaluate_simple_trigger(btc_dd, BTC_TRIGGERS)
 
-    # Guld
-    gold_close, gold_ath = get_last_and_ath("GC=F")
     gold_dd = compute_drawdown_percent(gold_close, gold_ath)
     gold_trigger = evaluate_simple_trigger(gold_dd, GOLD_TRIGGERS)
 
@@ -194,7 +237,6 @@ def main() -> None:
         send_email(subject, body)
         state["last_email_sent_at"] = now
 
-    # Reset när läget lugnar sig
     if vix_close < 20 and spx_dd > -5:
         state["spx_last_trigger"] = None
     if btc_dd > -10:
