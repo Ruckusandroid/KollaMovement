@@ -60,7 +60,10 @@ def send_email(subject: str, body: str, html: str | None = None) -> None:
     smtp_user = os.environ["SMTP_USER"].strip()
     smtp_password = os.environ["SMTP_PASSWORD"].strip()
     email_from = os.environ["EMAIL_FROM"].strip()
-    email_to = os.environ["EMAIL_TO"].strip()
+    email_to_raw = os.environ["EMAIL_TO"]
+
+    # gör lista av adresser
+    email_to_list = [addr.strip() for addr in email_to_raw.split(",") if addr.strip()]
 
     if not smtp_host:
         raise RuntimeError("SMTP_HOST är tom")
@@ -72,7 +75,7 @@ def send_email(subject: str, body: str, html: str | None = None) -> None:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = email_from
-    msg["To"] = email_to
+    msg["To"] = ", ".join(email_to_list)
 
     if html:
         msg.set_content(body)
