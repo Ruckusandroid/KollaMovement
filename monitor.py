@@ -1,30 +1,11 @@
 import os
 import json
 from datetime import datetime, timezone
-
-import yfinance as yf
 import smtplib
 import ssl
 from email.message import EmailMessage
 
-def send_email(subject: str, body: str) -> None:
-    smtp_host = os.environ["SMTP_HOST"]
-    smtp_port = int(os.environ["SMTP_PORT"])
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    email_from = os.environ["EMAIL_FROM"]
-    email_to = os.environ["EMAIL_TO"]
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = email_from
-    msg["To"] = email_to
-    msg.set_content(body)
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
-        server.login(smtp_user, smtp_password)
-        server.send_message(msg)
+import yfinance as yf
 
 
 STATE_FILE = "state.json"
@@ -46,14 +27,32 @@ BTC_TRIGGERS = [
 ]
 
 # Guld: lugnare rörelser
-# yfinance-ticker för spot gold är inte alltid helt konsekvent mellan datakällor.
-# GC=F (gold futures) brukar vara mest praktiskt.
 GOLD_TRIGGERS = [
     ("L1", -8.0),
     ("L2", -12.0),
     ("L3", -16.0),
     ("L4", -20.0),
 ]
+
+
+def send_email(subject: str, body: str) -> None:
+    smtp_host = os.environ["SMTP_HOST"]
+    smtp_port = int(os.environ["SMTP_PORT"])
+    smtp_user = os.environ["SMTP_USER"]
+    smtp_password = os.environ["SMTP_PASSWORD"]
+    email_from = os.environ["EMAIL_FROM"]
+    email_to = os.environ["EMAIL_TO"]
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = email_from
+    msg["To"] = email_to
+    msg.set_content(body)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
 
 
 def load_state() -> dict:
@@ -111,25 +110,6 @@ def evaluate_simple_trigger(drawdown_pct: float, triggers: list[tuple[str, float
         if drawdown_pct <= dd_threshold:
             triggered = level_name
     return triggered
-
-
-def send_email(subject: str, body: str) -> None:
-    api_key = os.environ["SENDGRID_API_KEY"]
-    email_from = os.environ["EMAIL_FROM"]
-    email_to = os.environ["EMAIL_TO"]
-
-    message = Mail(
-        from_email=email_from,
-        to_emails=email_to,
-        subject=subject,
-        plain_text_content=body,
-    )
-
-    sg = SendGridAPIClient(api_key)
-    response = sg.send(message)
-
-    if response.status_code >= 300:
-        raise RuntimeError(f"SendGrid error: {response.status_code}")
 
 
 def main() -> None:
