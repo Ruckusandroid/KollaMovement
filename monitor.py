@@ -221,6 +221,59 @@ def get_next_spx_trigger(drawdown_pct: float, vix: float) -> str:
     return "Ingen nästa nivå, redan under djupaste triggern"
 
 
+def get_deleveraging_signal(drawdown_pct: float, vix: float) -> str:
+    if drawdown_pct > -5 or vix < 18:
+        return "Stark amorteringssignal"
+    if drawdown_pct > -10 and vix < 20:
+        return "Tydlig amorteringssignal"
+    if vix < 25:
+        return "Försiktig amorteringssignal"
+    return "Ingen amortering ännu"
+
+
+def get_deleveraging_guidance(drawdown_pct: float, vix: float) -> str:
+    signal = get_deleveraging_signal(drawdown_pct, vix)
+
+    if signal == "Stark amorteringssignal":
+        return (
+            "Om du är belånad:\n"
+            "- 0–2%: amortera av helt\n"
+            "- 2–5%: amortera av helt\n"
+            "- 5–8%: amortera ner till 0–2%\n"
+            "- 8–12%: amortera ner till 0–2% snabbt\n"
+            "- 12–16%: amortera aggressivt ner mot 0%\n"
+        )
+
+    if signal == "Tydlig amorteringssignal":
+        return (
+            "Om du är belånad:\n"
+            "- 0–2%: du kan ligga kvar eller amortera av helt\n"
+            "- 2–5%: amortera ner mot 0–2%\n"
+            "- 5–8%: amortera ner mot 2–5%\n"
+            "- 8–12%: amortera ner mot 5%\n"
+            "- 12–16%: amortera tydligt ner mot 5–8%\n"
+        )
+
+    if signal == "Försiktig amorteringssignal":
+        return (
+            "Om du är belånad:\n"
+            "- 0–2%: ingen brådska\n"
+            "- 2–5%: överväg att amortera lätt mot 2%\n"
+            "- 5–8%: amortera försiktigt ner mot 5%\n"
+            "- 8–12%: amortera ner mot 5–8%\n"
+            "- 12–16%: amortera ner mot 8%\n"
+        )
+
+    return (
+        "Om du är belånad:\n"
+        "- 0–2%: ingen åtgärd\n"
+        "- 2–5%: ingen åtgärd\n"
+        "- 5–8%: ingen åtgärd\n"
+        "- 8–12%: avvakta\n"
+        "- 12–16%: avvakta, men öka inte ytterligare\n"
+    )
+
+
 def format_level_html(label: str, text: str, is_active: bool) -> str:
     if is_active:
         return f"<li><strong>{label}: {text} ← vi är här nu</strong></li>"
@@ -391,7 +444,6 @@ def main() -> None:
         state["last_email_sent_at"] = now
 
     if should_send_weekly_status(state, now_dt):
-        subject = "Veckobrev"
         text_body = (
             "Systemet lever och kör som vanligt.\n\n"
             "Status just nu:\n\n"
@@ -416,8 +468,12 @@ def main() -> None:
             f"- Från ATH: {gold_dd:.2f}%\n"
             f"- Aktiv trigger: {gold_trigger or 'Ingen'}\n"
             f"- Aktiv åtgärd: {GOLD_ACTIONS.get(gold_trigger, 'Ingen aktiv åtgärd just nu.') if gold_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
-            f"- Nästa trigger: {get_next_simple_trigger(gold_dd, GOLD_TRIGGERS)}\n"
+            f"- Nästa trigger: {get_next_simple_trigger(gold_dd, GOLD_TRIGGERS)}\n\n"
+            "Amorteringsrekommendation\n"
+            f"- Signal: {get_deleveraging_signal(spx_dd, vix_close)}\n"
+            f"{get_deleveraging_guidance(spx_dd, vix_close)}\n"
         )
+
         html_body = f"""
         <html>
           <body>
@@ -429,7 +485,7 @@ def main() -> None:
           </body>
         </html>
         """
-        send_email(subject, text_body, html_body)
+        send_email("Veckobrev", text_body, html_body)
         state["last_status_email_date"] = now_dt.date().isoformat()
 
     if vix_close < 20 and spx_dd > -5:
