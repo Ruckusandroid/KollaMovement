@@ -2,8 +2,8 @@ name: Market Monitor
 
 on:
   schedule:
-    - cron: "30 14 * * 1-5"
-      timezone: "Europe/Stockholm"
+   - cron: "17 16 * * 1-5"
+     timezone: "Europe/Stockholm"
   workflow_dispatch:
 
 jobs:
