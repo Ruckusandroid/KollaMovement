@@ -2,5 +2,6 @@
   "spx_last_trigger": null,
   "btc_last_trigger": "L2",
   "gold_last_trigger": "L1",
-  "last_email_sent_at": "2026-04-19T23:39:13.318281+00:00"
+  "last_email_sent_at": "2026-04-19T23:39:13.318281+00:00",
+  "last_status_email_date": "2026-04-20"
 }
