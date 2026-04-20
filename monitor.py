@@ -455,6 +455,9 @@ def main() -> None:
             f"- Aktiv trigger: {spx_trigger or 'Ingen'}\n"
             f"- Aktiv åtgärd: {SPX_ACTIONS.get(spx_trigger, 'Ingen aktiv åtgärd just nu.') if spx_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
             f"- Nästa trigger: {get_next_spx_trigger(spx_dd, vix_close)}\n\n"
+            "Amorteringsrekommendation\n"
+            f"- Signal: {get_deleveraging_signal(spx_dd, vix_close)}\n"
+            f"{get_deleveraging_guidance(spx_dd, vix_close)}\n"
             f"BTC\n"
             f"- Kurs: {btc_close:.2f}\n"
             f"- ATH: {btc_ath:.2f}\n"
@@ -469,9 +472,6 @@ def main() -> None:
             f"- Aktiv trigger: {gold_trigger or 'Ingen'}\n"
             f"- Aktiv åtgärd: {GOLD_ACTIONS.get(gold_trigger, 'Ingen aktiv åtgärd just nu.') if gold_trigger else 'Ingen aktiv åtgärd just nu.'}\n"
             f"- Nästa trigger: {get_next_simple_trigger(gold_dd, GOLD_TRIGGERS)}\n\n"
-            "Amorteringsrekommendation\n"
-            f"- Signal: {get_deleveraging_signal(spx_dd, vix_close)}\n"
-            f"{get_deleveraging_guidance(spx_dd, vix_close)}\n"
         )
 
         html_body = f"""
